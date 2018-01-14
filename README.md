@@ -5,4 +5,4 @@ First steps in Go.
 
 Run server using `go run main.go [port] [quotes.csv]` and call it via curl: `curl localhost:[port]`
 
-For convenience I added a small script to download some quotes from (Forismatic.com)[forismatic.com].
+For convenience I added a small script to download some quotes from [Forismatic.com](forismatic.com).
