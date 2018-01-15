@@ -29,6 +29,19 @@ It isn't what happens to us that causes us to suffer; it's what we say to oursel
 Being right is highly overrated. Even a stopped clock is right twice a day.
 The best and most beautiful things in the world cannot be seen, nor touched... but are felt in the heart. (Helen Keller)`
 
+var X string
+
+func BenchmarkGet(b *testing.B) {
+	r := strings.NewReader(quotes)
+	s, err := newServer(r)
+	if err != nil {
+		b.Fatal(err)
+	}
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		X = s.get()
+	}
+}
 func BenchmarkServe(b *testing.B) {
 	r := strings.NewReader(quotes)
 	s, err := newServer(r)
