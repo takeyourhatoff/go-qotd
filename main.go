@@ -1,68 +1,91 @@
 package main
 
 import (
-	"os"
-	"fmt"
-	"net"
-	"strings"
+	"bufio"
+	"flag"
+	"io"
+	"log"
 	"math/rand"
-	"io/ioutil"
+	"net"
+	"os"
+	"sync"
+	"time"
 )
 
-func randomQuote() ([]byte, error) {
-	bs, err := ioutil.ReadFile(os.Args[2])
-	if err != nil {
-		fmt.Println(err)
-		return nil, err
-	}
-
-	q := strings.Split(string(bs), "\n")
-	r := rand.Intn(len(q) - 1)
-
-	return []byte(q[r]), nil
+type quoteServer struct {
+	quotes   []string
+	randPool sync.Pool
 }
 
-func server(port string) {
-	ln, err := net.Listen("tcp", ":" + port)
-	if err != nil {
-		fmt.Println(err)
-		return
+func newServer(r io.Reader) (*quoteServer, error) {
+	var q quoteServer
+	q.randPool.New = func() interface{} {
+		return rand.New(rand.NewSource(time.Now().UnixNano()))
 	}
+	s := bufio.NewScanner(r)
+	s.Buffer(nil, 512-1)
+	for s.Scan() {
+		q.quotes = append(q.quotes, s.Text()+"\n")
+	}
+	return &q, s.Err()
+}
 
+func (q *quoteServer) get() string {
+	r := q.randPool.Get().(*rand.Rand)
+	s := q.quotes[r.Intn(len(q.quotes))]
+	q.randPool.Put(r)
+	return s
+}
+
+func (q *quoteServer) handle(conn net.Conn) {
+	io.WriteString(conn, q.get())
+	conn.Close()
+}
+
+func (q *quoteServer) serve(l net.Listener) error {
+	var tempDelay time.Duration // how long to sleep on accept failure
 	for {
-		c, err := ln.Accept()
-		if err != nil {
-			fmt.Println(err)
-			continue
+		conn, e := l.Accept()
+		if e != nil {
+			if ne, ok := e.(net.Error); ok && ne.Temporary() {
+				if tempDelay == 0 {
+					tempDelay = 5 * time.Millisecond
+				} else {
+					tempDelay *= 2
+				}
+				if max := 1 * time.Second; tempDelay > max {
+					tempDelay = max
+				}
+				time.Sleep(tempDelay)
+				continue
+			}
+			return e
 		}
-
-		go handler(c)
+		tempDelay = 0
+		go q.handle(conn)
 	}
 }
 
-func handler(c net.Conn) {
-	defer c.Close()
-
-	a := c.RemoteAddr()
-	fmt.Println("New connection: " + a.String())
-
-	q, err := randomQuote()
-	if err != nil {
-		fmt.Println(err)
-		return
-	}
-	c.Write(q)
-}
-
+var addr = flag.String("addr", ":17", "listen address")
 
 func main() {
-	a := os.Args[1:]
-	if len(a) < 2 {
-		fmt.Println("usage: port, file")
-		return
+	flag.Parse()
+
+	log.Println("Starting Server")
+
+	quoteFileName := flag.Arg(0)
+	f, err := os.Open(quoteFileName)
+	if err != nil {
+		log.Fatal(err)
 	}
-
-	fmt.Println("Starting Server")
-
-	server(string(a[0]))
+	s, err := newServer(f)
+	f.Close()
+	if err != nil {
+		log.Fatal(err)
+	}
+	l, err := net.Listen("tcp", *addr)
+	if err != nil {
+		log.Fatal(err)
+	}
+	log.Fatal(s.serve(l))
 }
