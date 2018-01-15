@@ -31,7 +31,7 @@ The best and most beautiful things in the world cannot be seen, nor touched... b
 
 var X string
 
-func BenchmarkGet(b *testing.B) {
+func Benchmark_quoteServer_get(b *testing.B) {
 	r := strings.NewReader(quotes)
 	s, err := newServer(r)
 	if err != nil {
@@ -42,35 +42,56 @@ func BenchmarkGet(b *testing.B) {
 		X = s.get()
 	}
 }
-func BenchmarkServe(b *testing.B) {
+
+func Benchmark_quoteServer_handle(b *testing.B) {
 	r := strings.NewReader(quotes)
 	s, err := newServer(r)
 	if err != nil {
 		b.Fatal(err)
 	}
-	l, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		b.Fatal(err)
-	}
-	defer l.Close()
-	go s.serve(l)
-	addr := l.Addr().String()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		conn, err := net.Dial("tcp", addr)
-		if err != nil {
-			b.Error(err)
-			continue
-		}
-		_, err = io.Copy(ioutil.Discard, conn)
-		if err != nil {
-			conn.Close()
-			b.Error(err)
-			continue
-		}
-		err = conn.Close()
+		cs, cc := net.Pipe()
+		s.Add(1)
+		go s.handle(cs)
+		_, err := io.Copy(ioutil.Discard, cc)
+		cc.Close()
 		if err != nil {
 			b.Error(err)
 		}
+	}
+}
+func Test_quoteServer_handle(t *testing.T) {
+	const want = "cofeve"
+	r := strings.NewReader(want)
+	s, err := newServer(r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cs, cc := net.Pipe()
+	defer cc.Close()
+	s.Add(1)
+	go s.handle(cs)
+	b, err := ioutil.ReadAll(cc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := strings.TrimSpace(string(b))
+	if got != want {
+		t.Errorf("got %q, wanted %q", got, want)
+	}
+}
+
+func Test_quoteServer_load(t *testing.T) {
+	s, err := newServer(strings.NewReader("foo"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if quote := s.get(); !strings.Contains(quote, "foo") {
+		t.Fatalf(`expected s.get() == "foo", got %s`, quote)
+	}
+	s.load(strings.NewReader("bar"))
+	if quote := s.get(); !strings.Contains(quote, "bar") {
+		t.Fatalf(`expected s.get() == "bar", got %s`, quote)
 	}
 }
