@@ -15,7 +15,7 @@ import (
 )
 
 type quoteServer struct {
-	quotes     []string
+	quotes     [][]byte
 	randPool   sync.Pool // sync.Pool<*rand.Rand>
 	inShutdown bool
 	sync.RWMutex
@@ -41,7 +41,7 @@ func (q *quoteServer) load(r io.Reader) error {
 	q.quotes = q.quotes[:0]
 	s.Buffer(nil, 512-1) // RFCxxxx specifies 512 bytes as an upper limit to the message, we append a newline, so subtract one byte from that
 	for s.Scan() {
-		q.quotes = append(q.quotes, s.Text()+"\n")
+		q.quotes = append(q.quotes, []byte(s.Text()+"\n"))
 	}
 	return s.Err()
 }
@@ -58,7 +58,7 @@ func (q *quoteServer) shutdown(l net.Listener) error {
 	return nil
 }
 
-func (q *quoteServer) get() string {
+func (q *quoteServer) get() []byte {
 	r := q.randPool.Get().(*rand.Rand)
 	q.RLock()
 	s := q.quotes[r.Intn(len(q.quotes))]
@@ -69,7 +69,7 @@ func (q *quoteServer) get() string {
 
 func (q *quoteServer) handle(conn net.Conn) {
 	conn.SetWriteDeadline(time.Now().Add(1 * time.Second))
-	io.WriteString(conn, q.get())
+	conn.Write(q.get())
 	conn.Close()
 	q.Done()
 }
